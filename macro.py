@@ -19,7 +19,7 @@ from core.macrocore.storage.db import (
 # Page config
 # ============================================================
 st.set_page_config(
-    page_title="Macro Tracker",
+    page_title="Emile's Macro Tracker",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
