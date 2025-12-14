@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+from typing import Optional
 
 # Optional: FRED macro data
 try:
@@ -233,10 +234,178 @@ MACRO_SERIES = {
         "icon": "💼"
     },
 }
+# ============================================================================
+# YIELD CURVE (FRED TREASURY CONSTANT MATURITY)
+# ============================================================================
+
+YIELD_CURVE_SERIES = {
+    "1M": "DGS1MO",
+    "3M": "DGS3MO",
+    "6M": "DGS6MO",
+    "1Y": "DGS1",
+    "2Y": "DGS2",
+    "5Y": "DGS5",
+    "10Y": "DGS10",
+    "30Y": "DGS30",
+}
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+# ============================================================================
+# SYMBOL RESOLUTION (NAME -> TICKER)
+# ============================================================================
+def style_plotly(fig, height: Optional[int] = None):
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#0f172a",
+        font=dict(color="#e5e7eb", size=13),
+        margin=dict(l=12, r=12, t=40, b=12),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#111827", font_color="#e5e7eb"),
+        legend=dict(bgcolor="rgba(15,23,42,0.6)", bordercolor="rgba(148,163,184,0.25)", borderwidth=1),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,0.12)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,0.12)")
+    if height:
+        fig.update_layout(height=height)
+    return fig
+
+
+
+def section_header(title: str, help_text: str, level: int = 2):
+    safe = help_text.replace('"', "'")
+    st.markdown(
+        f"""
+        <div class="hdr-wrap">
+          <h{level} style="margin:0;">{title}</h{level}>
+          <span class="help-dot" title="{safe}">?</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+SYMBOL_ALIASES = {
+    # ---------------------------
+    # US mega caps / common names
+    # ---------------------------
+    "google": "GOOGL",
+    "alphabet": "GOOGL",
+    "nvidia": "NVDA",
+    "apple": "AAPL",
+    "microsoft": "MSFT",
+    "amazon": "AMZN",
+    "tesla": "TSLA",
+    "meta": "META",
+    "facebook": "META",
+    "netflix": "NFLX",
+    "amd": "AMD",
+    "intel": "INTC",
+    "palantir": "PLTR",
+    "berkshire": "BRK-B",
+    "berkshire hathaway": "BRK-B",
+
+    # ---------------------------
+    # Indices / ETFs
+    # ---------------------------
+    "s&p 500": "^GSPC",
+    "sp500": "^GSPC",
+    "s&p500": "^GSPC",
+    "nasdaq": "^IXIC",
+    "dow": "^DJI",
+    "dow jones": "^DJI",
+    "vix": "^VIX",
+    "spy": "SPY",
+    "qqq": "QQQ",
+    "iwm": "IWM",
+    "dia": "DIA",
+
+    # ---------------------------
+    # Crypto (Yahoo Finance uses -USD pairs)
+    # ---------------------------
+    "bitcoin": "BTC-USD",
+    "btc": "BTC-USD",
+    "ethereum": "ETH-USD",
+    "eth": "ETH-USD",
+    "solana": "SOL-USD",
+    "sol": "SOL-USD",
+    "ripple": "XRP-USD",
+    "xrp": "XRP-USD",
+    "cardano": "ADA-USD",
+    "ada": "ADA-USD",
+    "dogecoin": "DOGE-USD",
+    "doge": "DOGE-USD",
+    "litecoin": "LTC-USD",
+    "ltc": "LTC-USD",
+    "chainlink": "LINK-USD",
+    "link": "LINK-USD",
+    "polkadot": "DOT-USD",
+    "dot": "DOT-USD",
+
+    # ---------------------------
+    # Commodities / Futures (Yahoo Finance tickers)
+    # ---------------------------
+    "gold": "GC=F",
+    "gold futures": "GC=F",
+    "silver": "SI=F",
+    "silver futures": "SI=F",
+    "oil": "CL=F",
+    "crude oil": "CL=F",
+    "wti": "CL=F",
+    "brent": "BZ=F",
+    "natural gas": "NG=F",
+    "gas": "NG=F",
+    "copper": "HG=F",
+    "corn": "ZC=F",
+    "wheat": "ZW=F",
+    "soybeans": "ZS=F",
+    "cotton": "CT=F",
+    "coffee": "KC=F",
+    "sugar": "SB=F",
+
+    # ---------------------------
+    # FX (major pairs)
+    # ---------------------------
+    "usd zar": "USDZAR=X",
+    "usdzar": "USDZAR=X",
+    "eur usd": "EURUSD=X",
+    "eurusd": "EURUSD=X",
+    "gbp usd": "GBPUSD=X",
+    "gbpusd": "GBPUSD=X",
+    "usd jpy": "USDJPY=X",
+    "usdjpy": "USDJPY=X",
+}
+
+def resolve_symbol(text: str) -> str:
+    """
+    Convert a company/asset name or ticker into a Yahoo Finance symbol.
+    - Case-insensitive
+    - Falls back to uppercase input if not found in aliases
+    """
+    if not text:
+        return ""
+
+    raw = text.strip()
+    key = raw.lower()
+
+    if key in SYMBOL_ALIASES:
+        return SYMBOL_ALIASES[key]
+
+    # light normalisation
+    key2 = (
+        key.replace("&", "and")
+           .replace(".", "")
+           .replace(",", "")
+           .replace("  ", " ")
+           .strip()
+    )
+    if key2 in SYMBOL_ALIASES:
+        return SYMBOL_ALIASES[key2]
+
+    # otherwise assume it's already a valid Yahoo symbol
+    return raw.upper()
+
 # ========= TECHNICAL ANALYSIS HELPERS =========
 
 def compute_rsi(close: pd.Series, window: int = 14) -> pd.Series:
@@ -349,6 +518,55 @@ def load_macro_series(macro_name, lookback_years=5):
     s.name = macro_name
     return s, None
 
+def load_yield_curve(lookback_years: int = 5):
+    """
+    Load multiple Treasury yield series from FRED and return a DataFrame:
+    index = date, columns = tenors (e.g., 1M, 3M, 2Y, 10Y), values = yields (%).
+    """
+    fred, err = _get_fred()
+    if err:
+        return None, err
+
+    end = date.today()
+    start = end - relativedelta(years=lookback_years)
+
+    data = {}
+    for tenor, series_id in YIELD_CURVE_SERIES.items():
+        try:
+            s = fred.get_series(series_id, observation_start=start, observation_end=end)
+        except Exception as e:
+            return None, f"FRED error loading {series_id}: {e}"
+
+        if s is None or s.empty:
+            data[tenor] = pd.Series(dtype=float)
+        else:
+            data[tenor] = s.dropna()
+
+    df = pd.DataFrame(data).sort_index()
+    if df.empty:
+        return None, "No yield curve data returned."
+    return df, None
+
+
+def latest_curve_snapshot(df: pd.DataFrame):
+    """
+    Get the latest row with any available yields.
+    Returns (as_of_date, snapshot_series_sorted_by_tenor).
+    """
+    if df is None or df.empty:
+        return None, None
+
+    tmp = df.dropna(how="all")
+    if tmp.empty:
+        return None, None
+
+    as_of = tmp.index[-1]
+    snap = tmp.loc[as_of].dropna()
+
+    # tenor ordering
+    order = list(YIELD_CURVE_SERIES.keys())
+    snap = snap.reindex([t for t in order if t in snap.index])
+    return as_of, snap
 
 def build_release_table(series, last_n=12):
     s = series.sort_index().dropna()
@@ -443,7 +661,7 @@ def compute_market_impact(releases: pd.DataFrame, ticker: str, window_days: int 
 st.sidebar.markdown("## 🎯 Navigation")
 page = st.sidebar.radio(
     "Select Dashboard",
-    ["📈 Stocks", "📰 News", "🌍 Macro"],
+    ["📈 Stocks", "🌍 Macro"],
     label_visibility="collapsed"
 )
 
@@ -502,7 +720,9 @@ def stocks_page():
     with col3:
         st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
 
-    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    raw_inputs = [t for t in tickers_input.split(",") if t.strip()]
+    tickers = [resolve_symbol(t) for t in raw_inputs]
+
 
     if not tickers:
         st.info("👆 Enter at least one ticker to begin your analysis")
@@ -1118,11 +1338,13 @@ def macro_page():
 
     releases = build_release_table(series, last_n=last_n)
 
-    tab_calendar, tab_history, tab_impact = st.tabs([
-        "📅 Release Calendar",
-        "📈 Historical Data",
-        "💥 Market Impact"
-    ])
+    tab_calendar, tab_history, tab_impact, tab_curve = st.tabs([
+    "Release calendar",
+    "Historical data",
+    "Market impact",
+    "Yield curve"
+])
+
 
     # ========== TAB 1: CALENDAR ==========
     with tab_calendar:
@@ -1203,11 +1425,12 @@ def macro_page():
         
         with col1:
             symbol = st.text_input(
-                "📊 Symbol to Analyze",
-                value="^GSPC",
-                help="Use any Yahoo Finance symbol: ^GSPC (S&P 500), SPY, NVDA, ^DJI, etc.",
-                placeholder="^GSPC"
+                "Symbol to analyse",
+                value="S&P 500",
+                help="You can type a name or a ticker (case-insensitive). Examples: S&P 500, SPY, Nvidia, Gold, Brent, Bitcoin, USDZAR",
+                placeholder="e.g. Nvidia, Gold, Bitcoin, USDZAR"
             )
+
         
         with col2:
             window_days = st.slider(
@@ -1217,17 +1440,22 @@ def macro_page():
             )
 
         if not symbol:
-            st.info("👆 Enter a symbol to analyze market reactions")
+            st.info("Enter a symbol to analyse market reactions")
             return
 
-        with st.spinner(f"🔄 Computing impact on {symbol.upper()}..."):
-            impacts = compute_market_impact(releases, symbol.strip(), window_days=window_days)
+        resolved_symbol = resolve_symbol(symbol)
+        st.caption(f"Resolved symbol: {resolved_symbol}")
+
+        with st.spinner(f"Computing impact on {resolved_symbol}..."):
+            impacts = compute_market_impact(releases, resolved_symbol, window_days=window_days)
+
 
         if impacts is None or impacts.empty:
-            st.info(f"📭 Could not compute market impact for {symbol.upper()}. The symbol may be invalid or lack historical data.")
+            st.info(f"Could not compute market impact for {resolved_symbol}. The symbol may be invalid or lack historical data.")
             return
 
-        st.success(f"✅ Showing price movement in **{symbol.upper()}** from release date to {window_days} trading day(s) after")
+        st.success(f"Showing price movement in **{resolved_symbol}** from release date to {window_days} trading day(s) after")
+
 
         # Display table
         show = impacts.copy()
@@ -1298,8 +1526,153 @@ def macro_page():
             st.metric("Largest Gain", f"{max_gain:.2f}%")
         with col3:
             st.metric("Largest Loss", f"{max_loss:.2f}%")
+    
+    with tab_curve:
+        section_header(
+            "Yield curve",
+            "The yield curve shows Treasury yields across maturities. A normal curve slopes upward. Inversions (short rates above long rates) can signal tighter financial conditions.",
+            level=2
+        )
 
+        yc_col1, yc_col2, yc_col3 = st.columns([1.2, 1, 1])
 
+        with yc_col1:
+            yc_lookback = st.slider("History (years)", 1, 20, 5, key="yc_years")
+        with yc_col2:
+            show_spreads = st.checkbox("Show common spreads", value=True)
+        with yc_col3:
+            show_history_lines = st.checkbox("Show history lines", value=False)
+
+        yc_df, yc_err = load_yield_curve(lookback_years=yc_lookback)
+        if yc_err:
+            st.warning(yc_err)
+        elif yc_df is None or yc_df.empty:
+            st.info("No yield curve data available.")
+        else:
+            as_of, snap = latest_curve_snapshot(yc_df)
+
+            if as_of is None or snap is None or snap.empty:
+                st.info("No recent yield curve snapshot available.")
+            else:
+                st.caption(f"As of: {pd.to_datetime(as_of).strftime('%Y-%m-%d')} (FRED)")
+
+                # Snapshot metrics
+                mcols = st.columns(len(snap.index))
+                for i, tenor in enumerate(snap.index):
+                    with mcols[i]:
+                        with st.container(border=True):
+                            st.metric(tenor, f"{float(snap[tenor]):.2f}%")
+
+                # Spreads (simple and useful)
+                if show_spreads:
+                    # Only compute spreads if both legs exist
+                    spreads = []
+                    def _spread(a, b, label):
+                        if a in snap.index and b in snap.index:
+                            spreads.append((label, float(snap[a] - snap[b])))
+
+                    _spread("10Y", "2Y", "10Y–2Y")
+                    _spread("10Y", "3M", "10Y–3M")
+                    _spread("30Y", "10Y", "30Y–10Y")
+
+                    if spreads:
+                        scol1, scol2, scol3 = st.columns(3)
+                        for col, (name, val) in zip([scol1, scol2, scol3], spreads[:3]):
+                            with col:
+                                with st.container(border=True):
+                                    st.metric(name, f"{val:.2f}%")
+
+                st.markdown("---")
+
+                # Yield curve chart (cross-section)
+                fig_curve = go.Figure()
+                fig_curve.add_trace(
+                    go.Scatter(
+                        x=list(snap.index),
+                        y=[float(v) for v in snap.values],
+                        mode="lines+markers",
+                        name="Latest curve"
+                    )
+                )
+
+                # Optional: add a few historical curves for context
+                if show_history_lines:
+                    tmp = yc_df.dropna(how="all")
+                    sample_dates = []
+                    if len(tmp) > 0:
+                        sample_dates = [
+                            tmp.index[max(0, len(tmp) - 63)],   # ~3 months ago (trading days)
+                            tmp.index[max(0, len(tmp) - 252)],  # ~1 year ago
+                        ]
+                        sample_dates = [d for d in sample_dates if d in tmp.index and d != as_of]
+
+                    for d in sample_dates:
+                        row = tmp.loc[d].dropna()
+                        if row.empty:
+                            continue
+                        row = row.reindex(list(YIELD_CURVE_SERIES.keys()))
+                        fig_curve.add_trace(
+                            go.Scatter(
+                                x=list(row.index),
+                                y=[float(v) for v in row.values],
+                                mode="lines",
+                                name=pd.to_datetime(d).strftime("%Y-%m-%d"),
+                                opacity=0.6
+                            )
+                        )
+
+                fig_curve.update_layout(
+                    title="Treasury yield curve",
+                    xaxis_title="Maturity",
+                    yaxis_title="Yield (%)",
+                )
+                style_plotly(fig_curve, height=460)
+                st.plotly_chart(fig_curve, use_container_width=True)
+
+                # History chart (tenor time series)
+                st.markdown("---")
+                section_header(
+                    "Yield history",
+                    "Time series of yields by maturity. Use this to see how the curve shifts (parallel moves) or twists (short vs long moving differently).",
+                    level=3
+                )
+
+                tenors = list(YIELD_CURVE_SERIES.keys())
+                selected_tenors = st.multiselect(
+                    "Maturities to plot",
+                    options=tenors,
+                    default=["3M", "2Y", "10Y"],
+                    key="yc_tenors"
+                )
+
+                if selected_tenors:
+                    fig_hist = go.Figure()
+                    for t in selected_tenors:
+                        if t in yc_df.columns:
+                            fig_hist.add_trace(
+                                go.Scatter(
+                                    x=yc_df.index,
+                                    y=yc_df[t],
+                                    mode="lines",
+                                    name=t
+                                )
+                            )
+
+                    fig_hist.update_layout(
+                        title="Yields over time",
+                        xaxis_title="Date",
+                        yaxis_title="Yield (%)",
+                    )
+                    style_plotly(fig_hist, height=460)
+                    st.plotly_chart(fig_hist, use_container_width=True)
+
+                # Table (optional quick inspection)
+                with st.expander("View recent yield data"):
+                    recent = yc_df.tail(20).copy()
+                    recent.index = pd.to_datetime(recent.index).strftime("%Y-%m-%d")
+                    st.dataframe(recent, use_container_width=True)
+
+        
 
 # ============================================================================
 # MAIN ROUTER
