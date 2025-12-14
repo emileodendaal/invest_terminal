@@ -1,0 +1,869 @@
+
+# import streamlit as st
+# import yfinance as yf
+# import pandas as pd
+# import numpy as np
+# import requests
+# import plotly.graph_objects as go
+# from plotly.subplots import make_subplots
+# from datetime import datetime, date
+# from dateutil.relativedelta import relativedelta
+
+# # Optional: FRED macro data
+# try:
+#     from fredapi import Fred
+# except ImportError:
+#     Fred = None
+
+
+# try:
+#     from fredapi import Fred
+# except ImportError:
+#     Fred = None
+
+
+# # Try to read the key from Streamlit secrets; fall back to placeholder locally
+# try:
+#     NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
+    
+# except Exception:
+#     NEWS_API_KEY = "YOUR_NEWSAPI_KEY_HERE"
+
+
+# COUNTRY_MAP = {
+#     "United States": "us",
+#     "United Kingdom": "gb",
+#     "South Africa": "za",
+#     "Germany": "de",
+#     "France": "fr",
+#     "Canada": "ca",
+#     "Japan": "jp",
+#     "China": "cn",
+#     "India": "in",
+#     "Australia": "au",
+# }
+
+# SECTOR_KEYWORDS = {
+#     "Technology": "technology OR semiconductor OR software OR AI OR cloud",
+#     "Finance": "banking OR finance OR credit OR insurance",
+#     "Energy": "oil OR gas OR renewable OR solar OR energy",
+#     "Healthcare": "biotech OR pharmaceuticals OR healthcare",
+#     "Consumer": "retail OR consumer goods OR e-commerce",
+#     "Automotive": "EV OR automotive OR cars OR transportation",
+#     "Crypto": "crypto OR bitcoin OR ethereum OR blockchain",
+#     "Aerospace & Defence": "aerospace OR defence OR military",
+#     "Real Estate": "real estate OR REIT OR housing",
+#     "Manufacturing": "industrial OR manufacturing OR production",
+# }
+
+
+# def fetch_news_v2(query: str, country: str, sector: str, max_articles: int = 20):
+#     if NEWS_API_KEY == "YOUR_NEWSAPI_KEY_HERE":
+#         return [], "⚠️ Add your NEWS_API_KEY to Streamlit secrets."
+
+#     url = "https://newsapi.org/v2/everything"
+
+#     # Build dynamic search query
+#     search_terms = []
+#     if query:
+#         search_terms.append(query)
+#     if sector in SECTOR_KEYWORDS:
+#         search_terms.append(f"({SECTOR_KEYWORDS[sector]})")
+
+#     full_query = " AND ".join(search_terms) if search_terms else "markets"
+
+#     params = {
+#         "q": full_query,
+#         "language": "en",
+#         "pageSize": max_articles,
+#         "apiKey": NEWS_API_KEY,
+#         "sortBy": "publishedAt",
+#     }
+
+#     # If country selected, restrict to country-specific sources
+#     if country:
+#         params["domains"] = None  # optional
+
+#     try:
+#         r = requests.get(url, params=params, timeout=10)
+#         data = r.json()
+
+#         if data.get("status") != "ok":
+#             return [], f"API error: {data.get('message')}"
+
+#         articles = data.get("articles", [])
+
+#         return articles, None
+
+#     except Exception as e:
+#         return [], f"Error fetching news: {e}"
+
+
+# st.set_page_config(page_title="Investment Terminal", layout="wide")
+
+# # ---------------- SIDEBAR NAV ----------------
+
+# page = st.sidebar.radio("Navigate", ["Stocks", "News", "Macro"])
+
+# # ------------------ PAGES --------------------
+
+# def stocks_page():
+#     st.title("📈 Stocks dashboard")
+
+#     st.markdown(
+#         "Compare tickers, see performance, fundamentals and correlations."
+#     )
+
+#     # -------- Controls --------
+#     tickers_input = st.text_input(
+#         "Enter tickers (comma separated)",
+#         value="AAPL, MSFT, NVDA",
+#         help="Use Yahoo Finance tickers (e.g. AAPL, MSFT, NVDA, TSLA, SPY).",
+#     )
+
+#     c1, c2, c3 = st.columns(3)
+#     with c1:
+#         period = st.selectbox(
+#             "History period",
+#             ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"],
+#             index=3,
+#         )
+#     with c2:
+#         interval = st.selectbox(
+#             "Interval",
+#             ["1d", "1wk", "1mo"],
+#             index=0,
+#         )
+#     with c3:
+#         chart_mode = st.radio(
+#             "Chart type",
+#             ["Line (multi-ticker)", "Candlestick (single ticker)"],
+#             index=0,
+#             help="Candlesticks only work when a single ticker is selected.",
+#         )
+
+#     tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+
+#     if not tickers:
+#         st.info("Add at least one ticker to start.")
+#         return
+
+#     # -------- Download price data --------
+#     with st.spinner("Fetching price data..."):
+#         try:
+#             data = yf.download(
+#                 tickers,
+#                 period=period,
+#                 interval=interval,
+#                 auto_adjust=True,
+#                 progress=False,
+#             )
+#         except Exception as e:
+#             st.error(f"Could not download data: {e}")
+#             return
+
+#     if data.empty:
+#         st.warning("No data returned for these tickers / period.")
+#         return
+
+#     closes = data["Close"] if "Close" in data else data
+#     vols = data["Volume"] if "Volume" in data else None
+
+#     if isinstance(closes, pd.Series):
+#         closes = closes.to_frame(name=tickers[0])
+
+#     closes.columns = [str(c).upper() for c in closes.columns]
+
+#     # -------- Returns & key stats --------
+#     returns = closes.pct_change().dropna()
+#     if returns.empty:
+#         st.info("Not enough data to compute returns.")
+#         return
+
+#     total_return = (closes.iloc[-1] / closes.iloc[0] - 1.0) * 100
+#     daily_vol = returns.std() * 100
+
+#     st.subheader("Snapshot")
+
+#     # left = prices, right = fundamentals expander
+#     snap_left, snap_right = st.columns([2, 1])
+
+# # --- Market price metrics (left) ---
+#     with snap_left:
+#         cols_per_row = 3  # up to 3 metrics per row
+#         ticker_list = list(closes.columns)
+
+#         # go in chunks of `cols_per_row` tickers
+#         for row_start in range(0, len(ticker_list), cols_per_row):
+#             row_tickers = ticker_list[row_start : row_start + cols_per_row]
+#             row_cols = st.columns(len(row_tickers))  # 1 row with N columns
+
+#             for col_obj, t in zip(row_cols, row_tickers):
+#                 latest = closes[t].iloc[-1]
+#                 ret = total_return[t]
+#                 vol = daily_vol[t]
+
+#                 with col_obj:
+#                     st.metric(
+#                         label=t,
+#                         value=f"${latest:,.2f}",
+#                         delta=f"{ret:.2f}%",
+#                         help=f"Daily vol: {vol:.2f}%",
+#                     )
+
+
+#     # --- Fundamentals & ratios (right, in expander) ---
+#     with snap_right:
+#         with st.expander("Fundamentals & ratios", expanded=False):
+#             st.caption("Fundamentals are fetched per ticker from Yahoo Finance (can be a bit slow).")
+
+#             # label -> (field_name, formatter)
+#             ratio_def = {
+#                 "Market cap (B)": ("marketCap", lambda v: f"${v/1e9:,.2f}B"),
+#                 "P/E (trailing)": ("trailingPE", lambda v: f"{v:.2f}"),
+#                 "P/E (forward)": ("forwardPE", lambda v: f"{v:.2f}"),
+#                 "Price-to-book": ("priceToBook", lambda v: f"{v:.2f}"),
+#                 "Price-to-sales": (
+#                     "priceToSalesTrailing12Months",
+#                     lambda v: f"{v:.2f}",
+#                 ),
+#                 "Dividend yield": ("dividendYield", lambda v: f"{v*100:.2f}%"),
+#                 "ROE": ("returnOnEquity", lambda v: f"{v*100:.2f}%"),
+#                 "ROA": ("returnOnAssets", lambda v: f"{v*100:.2f}%"),
+#                 "Profit margin": ("profitMargins", lambda v: f"{v*100:.2f}%"),
+#                 "Debt / Equity": ("debtToEquity", lambda v: f"{v:.2f}"),
+#                 "Beta": ("beta", lambda v: f"{v:.2f}"),
+#             }
+
+#             labels = list(ratio_def.keys())
+#             default_labels = [
+#                 "Market cap (B)",
+#                 "P/E (trailing)",
+#                 "P/E (forward)",
+#                 "Dividend yield",
+#                 "ROE",
+#                 "Beta",
+#             ]
+
+#             selected = st.multiselect(
+#                 "Select ratios to display",
+#                 labels,
+#                 default=default_labels,
+#             )
+
+#             if not selected:
+#                 st.info("Select at least one ratio above.")
+#             else:
+#                 rows = []
+#                 # loop over all tickers currently in the closes dataframe
+#                 for t in closes.columns:
+#                     try:
+#                         tk = yf.Ticker(t)
+#                         try:
+#                             info = tk.info
+#                         except Exception:
+#                             info = tk.get_info()
+#                     except Exception:
+#                         info = {}
+
+#                     row = {"Ticker": t}
+#                     for label in selected:
+#                         field, fmt = ratio_def[label]
+#                         raw = info.get(field, None)
+#                         if raw is None or raw == "None":
+#                             display = "–"
+#                         else:
+#                             try:
+#                                 display = fmt(raw)
+#                             except Exception:
+#                                 display = str(raw)
+#                         row[label] = display
+
+#                     rows.append(row)
+
+#                 if rows:
+#                     df_ratios = pd.DataFrame(rows)
+#                     st.dataframe(df_ratios)
+#                 else:
+#                     st.info("No fundamentals available for the selected tickers.")
+
+
+#     # -------- Price & volume --------
+#     st.subheader("Price & volume")
+
+#     single_ticker = len(closes.columns) == 1
+
+#     # --- Candlestick mode (single ticker) ---
+#     if chart_mode == "Candlestick (single ticker)" and single_ticker:
+#         t = closes.columns[0]
+
+#         with st.spinner(f"Fetching OHLC for {t}..."):
+#             try:
+#                 hist = yf.Ticker(t).history(period=period, interval=interval)
+#             except Exception as e:
+#                 st.error(f"Could not get candlestick data for {t}: {e}")
+#                 hist = None
+
+#         needed = {"Open", "High", "Low", "Close"}
+#         if hist is None or hist.empty or not needed.issubset(hist.columns):
+#             st.warning("OHLC data not available — falling back to line chart.")
+#             hist = None
+
+#         if hist is not None:
+#             fig = make_subplots(
+#                 rows=2,
+#                 cols=1,
+#                 shared_xaxes=True,
+#                 row_heights=[0.7, 0.3],
+#                 vertical_spacing=0.03,
+#             )
+
+#             fig.add_trace(
+#                 go.Candlestick(
+#                     x=hist.index,
+#                     open=hist["Open"],
+#                     high=hist["High"],
+#                     low=hist["Low"],
+#                     close=hist["Close"],
+#                     name=t,
+#                 ),
+#                 row=1,
+#                 col=1,
+#             )
+
+#             if "Volume" in hist.columns:
+#                 fig.add_trace(
+#                     go.Bar(
+#                         x=hist.index,
+#                         y=hist["Volume"],
+#                         name="Volume",
+#                     ),
+#                     row=2,
+#                     col=1,
+#                 )
+
+#             fig.update_layout(
+#                 height=600,
+#                 margin=dict(l=10, r=10, t=40, b=10),
+#                 xaxis_title="Date",
+#                 yaxis_title="Price",
+#                 xaxis2_title="Date",
+#                 yaxis2_title="Volume",
+#             )
+#             st.plotly_chart(fig, use_container_width=True)
+#         else:
+#             # fall back to line mode
+#             chart_mode = "Line (multi-ticker)"
+
+#     # --- Line mode (multi or single) ---
+#     if chart_mode == "Line (multi-ticker)" or not single_ticker:
+#         fig_price = go.Figure()
+#         for col in closes.columns:
+#             fig_price.add_trace(
+#                 go.Scatter(
+#                     x=closes.index,
+#                     y=closes[col],
+#                     mode="lines",
+#                     name=col,
+#                 )
+#             )
+
+#         fig_price.update_layout(
+#             height=450,
+#             margin=dict(l=10, r=10, t=40, b=10),
+#             xaxis_title="Date",
+#             yaxis_title="Price",
+#         )
+#         st.plotly_chart(fig_price, use_container_width=True)
+
+#         # volume (single-ticker) as separate bar chart
+#         if vols is not None and single_ticker:
+#             if isinstance(vols, pd.DataFrame):
+#                 vol_series = vols[closes.columns[0]]
+#             else:
+#                 vol_series = vols
+#             st.caption("Daily volume")
+#             fig_vol = go.Figure(
+#                 data=[
+#                     go.Bar(
+#                         x=vol_series.index,
+#                         y=vol_series.values,
+#                         name="Volume",
+#                     )
+#                 ]
+#             )
+#             fig_vol.update_layout(
+#                 height=200,
+#                 margin=dict(l=10, r=10, t=10, b=40),
+#                 xaxis_title="Date",
+#                 yaxis_title="Volume",
+#             )
+#             st.plotly_chart(fig_vol, use_container_width=True)
+
+#     # -------- Normalised performance --------
+#     st.subheader("Normalised performance (100 = start)")
+#     rebased = closes / closes.iloc[0] * 100.0
+
+#     fig_norm = go.Figure()
+#     for col in rebased.columns:
+#         fig_norm.add_trace(
+#             go.Scatter(
+#                 x=rebased.index,
+#                 y=rebased[col],
+#                 mode="lines",
+#                 name=col,
+#             )
+#         )
+
+#     fig_norm.update_layout(
+#         height=350,
+#         margin=dict(l=10, r=10, t=40, b=10),
+#         xaxis_title="Date",
+#         yaxis_title="Index (100 = start)",
+#     )
+#     st.plotly_chart(fig_norm, use_container_width=True)
+
+#     # -------- Correlation heatmap --------
+#     st.subheader("Correlation of daily returns")
+
+#     corr = returns.corr().round(2)
+#     fig_corr = go.Figure(
+#         data=go.Heatmap(
+#             z=corr.values,
+#             x=corr.columns,
+#             y=corr.index,
+#             colorscale="RdBu",
+#             zmin=-1,
+#             zmax=1,
+#             colorbar=dict(title="ρ"),
+#         )
+#     )
+#     fig_corr.update_layout(
+#         height=400,
+#         margin=dict(l=10, r=10, t=40, b=10),
+#     )
+#     st.plotly_chart(fig_corr, use_container_width=True)
+
+#     # -------- Technical analysis section placeholder --------
+#     st.subheader("Technical analysis")
+#     st.info("Technical analysis tools (RSI, moving averages, etc.) can be added here later.")
+
+
+
+# def news_page():
+    
+#     st.title("📰 Global Financial News")
+
+#     st.markdown("Filter news by **country**, **sector**, and **keywords/ticker**.")
+
+#     # UI filters
+#     col1, col2 = st.columns(2)
+
+#     with col1:
+#         country = st.selectbox(
+#             "Select country",
+#             ["All", *COUNTRY_MAP.keys()],
+#             index=0
+#         )
+#     with col2:
+#         sector = st.selectbox(
+#             "Select sector",
+#             ["All", *SECTOR_KEYWORDS.keys()],
+#             index=0
+#         )
+
+#     query = st.text_input(
+#         "Keyword or ticker (optional)",
+#         placeholder="e.g., NVDA, interest rates, BRICS, inflation, Tesla..."
+#     )
+
+#     max_articles = st.slider("Max articles", 5, 40, 20, step=5)
+
+#     if st.button("🔍 Search News"):
+#         with st.spinner("Fetching news..."):
+
+#             chosen_country_code = None if country == "All" else COUNTRY_MAP[country]
+#             chosen_sector = None if sector == "All" else sector
+
+#             articles, error = fetch_news_v2(
+#                 query=query,
+#                 country=chosen_country_code,
+#                 sector=chosen_sector,
+#                 max_articles=max_articles
+#             )
+
+#         if error:
+#             st.warning(error)
+#             return
+
+#         if not articles:
+#             st.info("No news found for your filters.")
+#             return
+
+#         st.write(f"### Showing {len(articles)} articles")
+
+#         # Display articles
+#         for art in articles:
+#             title = art.get("title", "No title")
+#             source = art.get("source", {}).get("name", "Unknown")
+#             url = art.get("url", "")
+#             desc = art.get("description", "")
+#             ts = art.get("publishedAt", "")
+
+#             # Format datetime
+#             try:
+#                 ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+#             except:
+#                 pass
+
+#             with st.container():
+#                 st.markdown(f"#### [{title}]({url})")
+#                 st.caption(f"{source} · {ts}")
+
+#                 if desc:
+#                     st.write(desc)
+
+#                 st.markdown("---")
+
+
+# # ---------------- MACRO HELPERS ----------------
+
+# # Dictionary of macro indicators we support
+# # ---------------- MACRO CONFIG ----------------
+
+# MACRO_SERIES = {
+#     "US CPI (All items)": {
+#         "id": "CPIAUCSL",
+#         "units": "Index 1982-84=100",
+#         "description": "Headline CPI, urban consumers (FRED: CPIAUCSL)",
+#     },
+#     "US Unemployment rate": {
+#         "id": "UNRATE",
+#         "units": "%",
+#         "description": "US unemployment rate, monthly (FRED: UNRATE)",
+#     },
+#     "US Fed funds rate (effective)": {
+#         "id": "FEDFUNDS",
+#         "units": "%",
+#         "description": "Effective federal funds rate (FRED: FEDFUNDS)",
+#     },
+#     "US Nonfarm payrolls": {
+#         "id": "PAYEMS",
+#         "units": "Thousands",
+#         "description": "Total nonfarm payrolls, level (FRED: PAYEMS)",
+#     },
+# }
+
+
+# def _get_fred():
+#     """Return an initialised Fred client or (None, error_message)."""
+#     if Fred is None:
+#         return None, "fredapi is not installed."
+
+#     api_key = st.secrets.get("FRED_API_KEY", "")
+#     if not api_key or api_key == "YOUR_FRED_API_KEY_HERE":
+#         return None, "Add your FRED_API_KEY to .streamlit/secrets.toml."
+
+#     try:
+#         fred = Fred(api_key=api_key)
+#     except Exception as e:
+#         return None, "Error initialising FRED: %s" % e
+
+#     return fred, None
+
+
+# def load_macro_series(macro_name, lookback_years=5):
+#     """
+#     Download a FRED series. Returns (series, error_message).
+#     """
+#     fred, err = _get_fred()
+#     if err:
+#         return None, err
+
+#     meta = MACRO_SERIES.get(macro_name)
+#     if not meta:
+#         return None, "Unknown macro series."
+
+#     series_id = meta["id"]
+
+#     end = date.today()
+#     start = end - relativedelta(years=lookback_years)
+
+#     try:
+#         s = fred.get_series(series_id, observation_start=start, observation_end=end)
+#     except Exception as e:
+#         return None, "FRED error: %s" % e
+
+#     if s is None or s.empty:
+#         return None, "No data returned."
+
+#     s = s.dropna()
+#     s.name = macro_name
+#     return s, None
+
+
+# def build_release_table(series, last_n=12):
+#     """
+#     Convert macro series into a table of releases.
+#     """
+#     s = series.sort_index().dropna()
+#     tail = s.tail(last_n)
+
+#     df = tail.to_frame(name="value")
+#     df["prev_value"] = df["value"].shift(1)
+#     df["abs_change"] = df["value"] - df["prev_value"]
+#     df["pct_change"] = df["value"].pct_change() * 100
+#     df = df.reset_index().rename(columns={"index": "date"})
+
+#     return df
+
+
+# def compute_market_impact(releases, ticker, window_days=3):
+#     """
+#     Calculate stock/index movement after each macro release.
+#     """
+#     if releases is None or releases.empty:
+#         return None
+
+#     start_date = releases["date"].min() - relativedelta(days=10)
+#     end_date = releases["date"].max() + relativedelta(days=window_days + 5)
+
+#     try:
+#         hist = yf.download(
+#             ticker,
+#             start=start_date,
+#             end=end_date,
+#             auto_adjust=True,
+#             progress=False,
+#         )
+#     except Exception:
+#         return None
+
+#     if hist.empty or "Close" not in hist:
+#         return None
+
+#     hist = hist.sort_index()
+
+#     impacts = []
+#     for _, row in releases.iterrows():
+#         d = row["date"]
+
+#         before = hist.loc[hist.index <= d]
+#         if before.empty:
+#             continue
+#         before_px = before["Close"].iloc[-1]
+#         before_date = before.index[-1]
+
+#         after = hist.loc[hist.index >= d]
+#         if after.empty:
+#             continue
+
+#         idx = min(window_days - 1, len(after) - 1)
+#         after_px = after["Close"].iloc[idx]
+#         after_date = after.index[idx]
+
+#         move_pct = (after_px / before_px - 1.0) * 100
+
+#         impacts.append(
+#             {
+#                 "release_date": d,
+#                 "before_date": before_date,
+#                 "after_date": after_date,
+#                 "before_px": before_px,
+#                 "after_px": after_px,
+#                 "move_%": move_pct,
+#                 "macro_value": row["value"],
+#                 "macro_abs_change": row["abs_change"],
+#                 "macro_pct_change": row["pct_change"],
+#             }
+#         )
+
+#     if not impacts:
+#         return None
+
+#     return pd.DataFrame(impacts)
+
+
+
+# # ---------------- MACRO PAGE ----------------
+
+# def macro_page():
+#     st.title("🌍 Macro dashboard")
+
+#     st.markdown(
+#         "Track key **macro releases**, compare them over time, "
+#         "and see how markets reacted around the data prints."
+#     )
+
+#     # Check FRED setup properly (tuple: fred, error)
+#     fred, fred_err = _get_fred()
+#     if fred_err:
+#         st.warning(
+#             "To use the macro dashboard, add a `FRED_API_KEY` to your Streamlit "
+#             "secrets and make sure `fredapi` is installed."
+#         )
+#         return
+
+#     # -------- Controls --------
+#     col1, col2, col3 = st.columns([2, 1, 1])
+
+#     with col1:
+#         macro_name = st.selectbox(
+#             "Macro indicator",
+#             list(MACRO_SERIES.keys()),
+#             index=0,
+#         )
+
+#     with col2:
+#         lookback_years = st.slider("History (years)", 1, 20, 5)
+
+#     with col3:
+#         last_n = st.slider("Releases to show", 5, 30, 10)
+
+#     st.divider()
+
+#     # Load macro series (returns (series, error))
+#     series, err = load_macro_series(macro_name, lookback_years=lookback_years)
+
+#     if err:
+#         st.warning(err)
+#         return
+
+#     if series is None or series.empty:
+#         st.info("Could not load macro data – check FRED API key and internet.")
+#         return
+
+#     units = MACRO_SERIES[macro_name]["units"]
+#     description = MACRO_SERIES[macro_name]["description"]
+
+#     st.markdown(f"**{macro_name}**  \n{description}  \n*Units:* `{units}`")
+
+#     # Build release table (acts as our 'calendar')
+#     releases = build_release_table(series, last_n=last_n)
+
+#     tab_calendar, tab_history, tab_impact = st.tabs(
+#         ["📅 Releases & calendar", "📈 History", "💥 Market reaction"]
+#     )
+
+#     # ---------- TAB 1: CALENDAR ----------
+#     with tab_calendar:
+#         st.subheader("Recent releases")
+
+#         if releases is None or releases.empty:
+#             st.info("No releases available.")
+#         else:
+#             nice = releases.copy()
+#             # 'date' column comes from build_release_table
+#             nice["date"] = pd.to_datetime(nice["date"]).dt.date
+
+#             nice = nice.rename(
+#                 columns={
+#                     "value": f"value ({units})",
+#                     "prev_value": "previous",
+#                     "abs_change": "change",
+#                     "pct_change": "% change",
+#                 }
+#             )
+
+#             st.dataframe(
+#                 nice[
+#                     ["date", f"value ({units})", "previous", "change", "% change"]
+#                 ],
+#                 hide_index=True,
+#                 use_container_width=True,
+#             )
+
+#     # ---------- TAB 2: HISTORY ----------
+#     with tab_history:
+#         st.subheader("Historical time series")
+
+#         fig = go.Figure()
+#         fig.add_trace(
+#             go.Scatter(
+#                 x=series.index,
+#                 y=series.values,
+#                 mode="lines+markers",
+#                 name=macro_name,
+#             )
+#         )
+
+#         fig.update_layout(
+#             height=450,
+#             margin=dict(l=10, r=10, t=40, b=10),
+#             xaxis_title="Date",
+#             yaxis_title=units,
+#         )
+
+#         st.plotly_chart(fig, use_container_width=True)
+
+#     # ---------- TAB 3: MARKET REACTION ----------
+#     with tab_impact:
+#         st.subheader("Market reaction around releases")
+
+#         sym_col1, sym_col2 = st.columns([2, 1])
+#         with sym_col1:
+#             symbol = st.text_input(
+#                 "Symbol / index to analyse",
+#                 value="^GSPC",
+#                 help="Any Yahoo Finance symbol, e.g. ^GSPC, SPY, NVDA, EURUSD=X …",
+#             )
+#         with sym_col2:
+#             window_days = st.slider(
+#                 "Days after release to measure move",
+#                 1,
+#                 10,
+#                 3,
+#             )
+
+#         if not symbol:
+#             st.info("Enter a symbol to see market reaction.")
+#             return
+
+#         impacts = compute_market_impact(
+#             releases,
+#             symbol.strip(),
+#             window_days=window_days,
+#         )
+
+#         if impacts is None or impacts.empty:
+#             st.info("Could not compute event impacts for this symbol.")
+#             return
+
+#         st.markdown(
+#             f"Price move in **{symbol.upper()}** from the close on the "
+#             f"release date to `{window_days}` trading day(s) after each macro release."
+#         )
+
+#         # Table
+#         show = impacts.copy()
+#         show["move_%"] = pd.to_numeric(show["move_%"], errors="coerce").round(2)
+#         st.dataframe(show, hide_index=True, use_container_width=True)
+
+#         # Bar chart of moves
+#         fig_imp = go.Figure(
+#             data=[
+#                 go.Bar(
+#                     x=impacts["release_date"].astype(str),
+#                     y=impacts["move_%"],
+#                     name="Move (%)",
+#                 )
+#             ]
+#         )
+#         fig_imp.update_layout(
+#             height=400,
+#             margin=dict(l=10, r=10, t=40, b=10),
+#             xaxis_title="Release date",
+#             yaxis_title="Move (%)",
+#         )
+#         st.plotly_chart(fig_imp, use_container_width=True)
+
+
+
+# # ---------------- ROUTER ----------------
+
+# if page == "Stocks":
+#     stocks_page()
+# elif page == "News":
+#     news_page()
+# elif page == "Macro":
+#     macro_page() 
