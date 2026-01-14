@@ -681,6 +681,24 @@ st.sidebar.info(
 # ============================================================================
 # STOCKS PAGE
 # ============================================================================
+def safe_get(info_obj, key, default=None):
+    # dict case
+    if isinstance(info_obj, dict):
+        return info_obj.get(key, default)
+
+    # None / missing
+    if info_obj is None:
+        return default
+
+    # attribute-style case (e.g., FastInfo)
+    if hasattr(info_obj, key):
+        return getattr(info_obj, key, default)
+
+    # mapping-style fallback
+    try:
+        return info_obj[key]
+    except Exception:
+        return default
 
 def stocks_page():
     st.markdown("<h1>📈 Stock Market Dashboard</h1>", unsafe_allow_html=True)
@@ -806,7 +824,8 @@ def stocks_page():
                     row = {"Ticker": t}
                     for label in selected:
                         field, fmt = ratio_def[label]
-                        raw = info.get(field, None)
+                        raw = safe_get(info, field, None)
+
                         if raw is None or raw == "None":
                             display = "–"
                         else:
